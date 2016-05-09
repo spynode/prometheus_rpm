@@ -1,0 +1,81 @@
+#!/bin/bash
+#
+#	/etc/rc.d/init.d/prometheus
+#
+# chkconfig: 2345 80 80
+
+. /etc/rc.d/init.d/functions
+
+PROG="prometheus"
+DAEMON="/opt/$PROG/$PROG"
+CONFIG="/opt/$PROG/conf/$PROG.yml"
+STORAGE="/data/db/$PROG"
+PIDFILE="/var/run/$PROG/$PROG.pid"
+LOCKFILE="/var/lock/subsys/$PROG"
+LOGFILE="/data/logs/$PROG/$PROG.log"
+DAEMON_USER="$PROG"
+GOMAXPROCS=$(grep -c ^processor /proc/cpuinfo)
+RETENTION="4392h"
+LOGLEVEL="info"
+[ -e /etc/sysconfig/$PROG ] && . /etc/sysconfig/$PROG
+[ -z "$ARGS" ] && ARGS="-config.file $CONFIG -storage.local.path $STORAGE -storage.local.series-file-shrink-ratio 0.2 -log.format logger:stdout -log.level $LOGLEVEL -storage.local.retention=$RETENTION"
+
+cstatus() {
+	[ -f "$PIDFILE" ] && { kill -0 $(<$PIDFILE) >/dev/null 2>&1 && { echo "Process is running (PID: $(<$PIDFILE))"; return 0; } || { echo "Process not running"; return 1; } }
+}
+
+start() {
+	cstatus >/dev/null && { cstatus; return $?; }
+	echo -n $"Starting $PROG: "
+	cmd="( $DAEMON $ARGS >>$LOGFILE 2>&1 & echo \$! >$PIDFILE ) &"
+        /sbin/runuser - $DAEMON_USER -m -s /bin/bash -c "$cmd" >/dev/null 2>&1
+        sleep 1
+	cstatus >/dev/null && { touch $LOCKFILE; success; } || failure
+	retval=$?
+	echo
+	return $retval
+}
+
+stop() {
+	echo -n $"Stopping $PROG: "
+	killproc -p $PIDFILE
+	retval=$?
+	echo
+	[ $retval = 0 ] && { rm -f "$PIDFILE"; rm -f "$LOCKFILE"; }
+	return $retval
+}
+
+reload() {
+	cstatus >/dev/null || { cstatus; return $?; }
+	echo -n $"Reloading $PROG: "
+	kill -HUP $(<$PIDFILE)
+	retval=$?
+        [ $retval -eq 0 ] && success || failure
+	echo
+	return $retval
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    status)
+	cstatus
+        ;;
+    reload)
+        reload
+        ;;
+    restart)
+        stop
+        start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|status|restart|reload}" >&2
+        exit 2
+        ;;
+esac
+
+exit $?
