@@ -31,28 +31,28 @@ start() {
         /sbin/runuser - $DAEMON_USER -m -s /bin/bash -c "$cmd" >/dev/null 2>&1
         sleep 1
 	cstatus >/dev/null && { touch $LOCKFILE; success; } || failure
-	retval=$?
+	retcode=$?
 	echo
-	return $retval
+	return $retcode
 }
 
 stop() {
 	echo -n $"Stopping $PROG: "
 	killproc -p $PIDFILE
-	retval=$?
+	retcode=$?
 	echo
-	[ $retval = 0 ] && { rm -f "$PIDFILE"; rm -f "$LOCKFILE"; }
-	return $retval
+	[ $retcode = 0 ] && { rm -f "$PIDFILE"; rm -f "$LOCKFILE"; }
+	return $retcode
 }
 
 reload() {
 	cstatus >/dev/null || { cstatus; return $?; }
 	echo -n $"Reloading $PROG: "
 	kill -HUP $(<$PIDFILE)
-	retval=$?
-        [ $retval -eq 0 ] && success || failure
+	retcode=$?
+        [ $retcode -eq 0 ] && success || failure
 	echo
-	return $retval
+	return $retcode
 }
 
 case "$1" in
