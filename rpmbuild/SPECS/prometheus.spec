@@ -13,7 +13,7 @@ Source2: prometheus.init
 %description
 
 %prep
-%setup -q -n prometheus-%{version}.linux-amd64
+%setup -q -n %{pkgname}
 
 %install
 install -p -d %{buildroot}%{progdir}/{console_libraries,consoles,conf}
