@@ -7,7 +7,8 @@
 . /etc/rc.d/init.d/functions
 
 PROG="prometheus"
-DAEMON="/opt/$PROG/$PROG"
+DAEMON="/opt/$PROG/bin/$PROG"
+PROMTOOL="/opt/$PROG/bin/promtool"
 CONFIG="/opt/$PROG/conf/$PROG.yml"
 STORAGE="/data/db/$PROG"
 PIDFILE="/var/run/$PROG/$PROG.pid"
@@ -17,42 +18,53 @@ DAEMON_USER="$PROG"
 GOMAXPROCS=$(grep -c ^processor /proc/cpuinfo)
 RETENTION="4392h"
 LOGLEVEL="info"
+ETIMEOUT=20
 [ -e /etc/sysconfig/$PROG ] && . /etc/sysconfig/$PROG
-[ -z "$ARGS" ] && ARGS="-config.file $CONFIG -storage.local.path $STORAGE -storage.local.series-file-shrink-ratio 0.2 -log.format logger:stdout -log.level $LOGLEVEL -storage.local.retention=$RETENTION"
+[ -z "$ARGS" ] && ARGS="-config.file $CONFIG -storage.local.path $STORAGE -storage.local.series-file-shrink-ratio 0.2 -storage.local.retention=$RETENTION -log.format logger:stdout -log.level $LOGLEVEL"
 
-cstatus() {
+function cstatus {
 	[ -f "$PIDFILE" ] && { kill -0 $(<$PIDFILE) >/dev/null 2>&1 && { echo "Process is running (PID: $(<$PIDFILE))"; return 0; } || { echo "Process not running"; return 1; } }
 }
 
-start() {
+function cconfig {
+	$PROMTOOL check-config $CONFIG || { echo "Problem in config: $CONFIG."; return 1; }
+	return 0
+}
+
+function start {
 	cstatus >/dev/null && { cstatus; return $?; }
 	echo -n $"Starting $PROG: "
 	cmd="( $DAEMON $ARGS >>$LOGFILE 2>&1 & echo \$! >$PIDFILE ) &"
         /sbin/runuser - $DAEMON_USER -m -s /bin/bash -c "$cmd" >/dev/null 2>&1
         sleep 1
 	cstatus >/dev/null && { touch $LOCKFILE; success; } || failure
-	retcode=$?
+	retval=$?
 	echo
-	return $retcode
+	return $retval
 }
 
-stop() {
-	echo -n $"Stopping $PROG: "
-	killproc -p $PIDFILE
-	retcode=$?
-	echo
-	[ $retcode = 0 ] && { rm -f "$PIDFILE"; rm -f "$LOCKFILE"; }
-	return $retcode
+function stop {
+        echo -n $"Stopping $PROG: "
+        kill $(<$PIDFILE)
+        retval=$?
+        local timeout=0
+        while true; do
+		kill -0 $(<$PIDFILE) >/dev/null 2>&1 || { success; echo; rm -f "$PIDFILE"; rm -f "$LOCKFILE"; return 0; }
+		sleep 1
+		timeout=$(($timeout+1))
+		[ $timeout -eq $ETIMEOUT ] && { failure; echo; return 1; }
+        done
 }
 
-reload() {
+function reload {
 	cstatus >/dev/null || { cstatus; return $?; }
+	cconfig || return 1
 	echo -n $"Reloading $PROG: "
 	kill -HUP $(<$PIDFILE)
-	retcode=$?
-        [ $retcode -eq 0 ] && success || failure
+	retval=$?
+        [ $retval -eq 0 ] && success || failure
 	echo
-	return $retcode
+	return $retval
 }
 
 case "$1" in
@@ -69,6 +81,7 @@ case "$1" in
         reload
         ;;
     restart)
+        cconfig || exit 1
         stop
         start
         ;;
